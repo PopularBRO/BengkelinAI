@@ -1,13 +1,15 @@
 from pathlib import Path
-import re
 import streamlit as st
 
 # BengkelinAI Streamlit wrapper
-# The original website remains in HTML, CSS, and JavaScript.
+# IMPORTANT: load the website from its real static-file URL, not as srcdoc.
+# This preserves the document URL so relative CSS, JS, images, and page links
+# resolve from /app/static/ correctly.
+
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 ENTRY_FILE = STATIC_DIR / "index.html"
-STATIC_URL = "/app/static/"
+STATIC_ENTRY_URL = "/app/static/index.html"
 
 st.set_page_config(
     page_title="BengkelinAI | One App for All Your Vehicle Needs",
@@ -16,16 +18,21 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# Keep Streamlit's surrounding canvas minimal. The site itself is rendered
-# inside a trusted iframe so its JavaScript and multi-page navigation work.
+# Keep the Streamlit shell unobtrusive. The website itself is rendered by
+# the original HTML/CSS/JavaScript files inside the iframe.
 st.markdown(
     """
     <style>
       html, body, [data-testid="stAppViewContainer"] {
-        background: #f4f7f9 !important;
+        background: #F4F7F9 !important;
       }
-      [data-testid="stHeader"], [data-testid="stToolbar"], footer,
-      #MainMenu { visibility: hidden !important; height: 0 !important; }
+      [data-testid="stHeader"],
+      [data-testid="stToolbar"],
+      [data-testid="stDecoration"],
+      footer, #MainMenu {
+        visibility: hidden !important;
+        height: 0 !important;
+      }
       .block-container {
         max-width: 100% !important;
         padding: 0 !important;
@@ -41,42 +48,28 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if not ENTRY_FILE.is_file():
-    st.error("Halaman utama tidak ditemukan.")
-    st.code(str(ENTRY_FILE))
-    st.info("Pastikan folder static berisi index.html, style.css, script.js, dan folder assets.")
+# Validate the website package before opening it.
+required_files = [
+    ENTRY_FILE,
+    STATIC_DIR / "style.css",
+    STATIC_DIR / "script.js",
+    STATIC_DIR / "assets" / "logo-bengkelinai.png",
+]
+missing = [str(path.relative_to(BASE_DIR)) for path in required_files if not path.is_file()]
+if missing:
+    st.error("Beberapa file website tidak ditemukan di repository.")
+    st.write("File yang belum ada:")
+    for item in missing:
+        st.code(item)
+    st.info("Pastikan folder static beserta seluruh isinya ikut di-upload ke GitHub.")
     st.stop()
 
-try:
-    html = ENTRY_FILE.read_text(encoding="utf-8")
-except OSError as exc:
-    st.error("Streamlit tidak dapat membaca index.html.")
-    st.exception(exc)
-    st.stop()
-
-# Because the HTML is embedded in an iframe as srcdoc, relative URLs would
-# otherwise resolve against the Streamlit page. Convert local href/src paths
-# to the Streamlit static-file endpoint. Keep #anchors and external URLs intact.
-URL_ATTR = re.compile(r"(?P<prefix>\b(?:href|src)\s*=\s*)(?P<quote>[\"'])(?P<url>[^\"']+)(?P=quote)", re.IGNORECASE)
-
-def make_static_url(match: re.Match) -> str:
-    url = match.group("url").strip()
-    lowered = url.lower()
-    if (
-        url.startswith(("#", "/"))
-        or lowered.startswith(("http://", "https://", "data:", "mailto:", "tel:", "javascript:", "blob:"))
-    ):
-        return match.group(0)
-    return f"{match.group('prefix')}{match.group('quote')}{STATIC_URL}{url}{match.group('quote')}"
-
-html = URL_ATTR.sub(make_static_url, html)
-
-# Render the local HTML directly instead of asking the iframe to navigate to
-# /app/static/index.html. This avoids a second document-navigation step during
-# first load. CSS, JS, images and page links still load from /app/static/.
+# Render the real static HTML URL. This is the key fix:
+# index.html keeps /app/static/ as its base URL, so style.css,
+# script.js, assets/logo-bengkelinai.png, and relative page links work.
 st.iframe(
-    html,
-    height=1100,
+    STATIC_ENTRY_URL,
+    height=1250,
     width="stretch",
     alt="Website BengkelinAI",
 )
